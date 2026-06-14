@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      PORT: 3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      SFU_PUBLIC_URL: ${SFU_PUBLIC_URL:-http://localhost:4000}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      - sfu
+
+  sfu:
+    build:
+      context: .
+      dockerfile: apps/sfu/Dockerfile
+    environment:
+      PORT: 4000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      MEDIASOUP_LISTEN_IP: 0.0.0.0
+      MEDIASOUP_ANNOUNCED_IP: ${MEDIASOUP_ANNOUNCED_IP:-127.0.0.1}
+      MEDIASOUP_MIN_PORT: ${MEDIASOUP_MIN_PORT:-40000}
+      MEDIASOUP_MAX_PORT: ${MEDIASOUP_MAX_PORT:-40100}
+    ports:
+      - "${SFU_PORT:-4000}:4000"
+      - "${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}:${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}/udp"
+      - "${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}:${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}/tcp"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        VITE_API_URL: ${API_PUBLIC_URL:-http://localhost:3000}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - api
+      - sfu

@@ -1,0 +1,14 @@
+{
+  "name": "chatlive-webrtc",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.1",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -ws",
+    "build": "npm run build -ws",
+    "lint": "npm run lint -ws --if-present"
+  }
+}
