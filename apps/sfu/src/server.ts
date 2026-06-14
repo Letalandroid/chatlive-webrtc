@@ -19,6 +19,10 @@ const corsOrigins = (process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN ?? 'htt
   .filter(Boolean);
 const listenIp = process.env.MEDIASOUP_LISTEN_IP ?? '0.0.0.0';
 const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
+const announcedIps = (process.env.MEDIASOUP_ANNOUNCED_IPS ?? announcedIp ?? '')
+  .split(',')
+  .map((ip) => ip.trim())
+  .filter(Boolean);
 const minPort = Number(process.env.MEDIASOUP_MIN_PORT ?? 40000);
 const maxPort = Number(process.env.MEDIASOUP_MAX_PORT ?? 40100);
 
@@ -100,7 +104,7 @@ async function getRoom(roomId: string) {
 
 async function createWebRtcTransport(router: Router) {
   const transport = await router.createWebRtcTransport({
-    listenIps: [{ ip: listenIp, announcedIp }],
+    listenIps: announcedIps.length > 0 ? announcedIps.map((ip) => ({ ip: listenIp, announcedIp: ip })) : [{ ip: listenIp }],
     enableUdp: true,
     enableTcp: true,
     preferUdp: true,
@@ -118,6 +122,28 @@ function transportPayload(transport: WebRtcTransport) {
     iceCandidates: transport.iceCandidates,
     dtlsParameters: transport.dtlsParameters,
   };
+}
+
+function roomsSnapshot() {
+  return [...rooms.values()].map((room) => ({
+    id: room.id,
+    peers: [...room.peers.values()].map((peer) => ({
+      id: peer.id,
+      username: peer.username,
+      transports: peer.transports.size,
+      producers: [...peer.producers.values()].map((producer) => ({
+        id: producer.id,
+        kind: producer.kind,
+        appData: producer.appData,
+      })),
+      consumers: [...peer.consumers.values()].map((consumer) => ({
+        id: consumer.id,
+        producerId: consumer.producerId,
+        kind: consumer.kind,
+        paused: consumer.paused,
+      })),
+    })),
+  }));
 }
 
 function removePeer(room: Room, peerId: string) {
@@ -138,6 +164,7 @@ function removePeer(room: Room, peerId: string) {
 const app = express();
 app.use(cors({ origin: corsOrigins }));
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'sfu' }));
+app.get('/rooms', (_req, res) => res.json({ rooms: roomsSnapshot() }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -160,6 +187,7 @@ io.on('connection', (socket) => {
 
       currentRoom.peers.set(socket.id, peer);
       socket.join(currentRoom.id);
+      console.log('peer joined', { roomId: currentRoom.id, peerId: peer.id, username: peer.username });
 
       const existingProducers = [...currentRoom.peers.values()]
         .filter((roomPeer) => roomPeer.id !== socket.id)
@@ -190,6 +218,17 @@ io.on('connection', (socket) => {
 
       const transport = await createWebRtcTransport(currentRoom.router);
       peer.transports.set(transport.id, transport);
+
+      transport.on('icestatechange', (iceState) => {
+        console.log('transport ice state', { roomId: currentRoom?.id, peerId: peer.id, transportId: transport.id, iceState });
+      });
+      transport.on('iceselectedtuplechange', (tuple) => {
+        console.log('transport selected tuple', { roomId: currentRoom?.id, peerId: peer.id, transportId: transport.id, tuple });
+      });
+      transport.on('dtlsstatechange', (dtlsState) => {
+        console.log('transport dtls state', { roomId: currentRoom?.id, peerId: peer.id, transportId: transport.id, dtlsState });
+      });
+
       callback(transportPayload(transport));
     } catch (error) {
       callback({ error: error instanceof Error ? error.message : 'transport failed' });
@@ -217,6 +256,13 @@ io.on('connection', (socket) => {
 
       const producer = await transport.produce({ kind, rtpParameters, appData });
       peer.producers.set(producer.id, producer);
+      console.log('producer created', {
+        roomId: currentRoom.id,
+        peerId: peer.id,
+        producerId: producer.id,
+        kind: producer.kind,
+        appData: producer.appData,
+      });
 
       producer.on('transportclose', () => peer.producers.delete(producer.id));
       producer.observer.on('close', () => {
@@ -256,6 +302,13 @@ io.on('connection', (socket) => {
       });
 
       peer.consumers.set(consumer.id, consumer);
+      console.log('consumer created', {
+        roomId: currentRoom.id,
+        peerId: peer.id,
+        consumerId: consumer.id,
+        producerId,
+        kind: consumer.kind,
+      });
       consumer.on('transportclose', () => peer.consumers.delete(consumer.id));
       consumer.on('producerclose', () => {
         peer.consumers.delete(consumer.id);
@@ -278,6 +331,7 @@ io.on('connection', (socket) => {
       const consumer = currentRoom?.peers.get(socket.id)?.consumers.get(consumerId);
       if (!consumer) throw new Error('consumer not found');
       await consumer.resume();
+      console.log('consumer resumed', { roomId: currentRoom?.id, peerId: socket.id, consumerId });
       callback({ resumed: true });
     } catch (error) {
       callback({ error: error instanceof Error ? error.message : 'resume failed' });
@@ -291,6 +345,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    console.log('peer disconnected', { roomId: currentRoom?.id, peerId: socket.id });
     if (currentRoom) removePeer(currentRoom, socket.id);
   });
 });

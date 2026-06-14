@@ -49,6 +49,7 @@ SFU_PORT=4000
 MEDIASOUP_MIN_PORT=40000
 MEDIASOUP_MAX_PORT=40100
 MEDIASOUP_ANNOUNCED_IP=TU_IP_PUBLICA
+MEDIASOUP_ANNOUNCED_IPS=TU_IP_PUBLICA
 ```
 
 Recomendación DNS:
@@ -58,5 +59,6 @@ Recomendación DNS:
 - `meet-sfu.example.com`: puede ir por Cloudflare proxy solo para la señalización HTTP/WebSocket del SFU.
 - RTP/WebRTC de mediasoup no viaja por el proxy HTTP de Cloudflare. Debes abrir/forwardear en el router los puertos `MEDIASOUP_MIN_PORT-MEDIASOUP_MAX_PORT` en UDP, y preferiblemente TCP también, hacia la Raspberry.
 - `MEDIASOUP_ANNOUNCED_IP` debe ser la IP pública real que alcanzan los navegadores, no una IP privada tipo `192.168.x.x`.
+- Para pruebas con compañeros fuera de tu red, no anuncies IPs privadas tipo `192.168.x.x`; usa solo la IP pública en `MEDIASOUP_ANNOUNCED_IPS`.
 
 Si tu red cambia de IP o hay clientes en redes restrictivas, el siguiente paso es agregar TURN. Cloudflare normal no reemplaza TURN para media WebRTC.
